@@ -1,21 +1,28 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"log/slog"
 	"net"
 )
 
+type Message struct {
+	from    string
+	payload []byte
+}
+
 type Server struct {
 	listenAddr string
 	ln         net.Listener
-	quitCh     chan struct{}
+	quitch     chan struct{}
+	msgch      chan Message
 }
 
 func NewServer(listenAddr string) *Server {
 	return &Server{
 		listenAddr: listenAddr,
+		quitch:     make(chan struct{}),
+		msgch:      make(chan Message, 5),
 	}
 }
 
@@ -26,10 +33,13 @@ func (s *Server) Run() error {
 	}
 	defer ln.Close()
 
+	log.Println("PORT", s.listenAddr)
+
 	s.ln = ln
 	go s.accept()
 
-	<-s.quitCh
+	<-s.quitch
+	close(s.msgch)
 
 	return nil
 }
@@ -42,7 +52,7 @@ func (s *Server) accept() {
 			continue
 		}
 
-		log.Println("accepted connection:", conn.RemoteAddr())
+		log.Println("accepted connection:", conn.RemoteAddr().String())
 
 		go s.read(conn)
 	}
@@ -58,8 +68,11 @@ func (s *Server) read(conn net.Conn) {
 			continue
 		}
 
-		msg := buf[:n]
+		msg := Message{
+			from:    conn.RemoteAddr().String(),
+			payload: buf[:n],
+		}
 
-		fmt.Println(string(msg))
+		s.msgch <- msg
 	}
 }
