@@ -1,9 +1,10 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"log/slog"
 	"net"
+	"sync"
 )
 
 type Message struct {
@@ -16,6 +17,9 @@ type Server struct {
 	ln         net.Listener
 	quitch     chan struct{}
 	msgch      chan Message
+
+	mu    sync.Mutex
+	peers map[string]bool
 }
 
 func NewServer(listenAddr string) *Server {
@@ -23,6 +27,7 @@ func NewServer(listenAddr string) *Server {
 		listenAddr: listenAddr,
 		quitch:     make(chan struct{}),
 		msgch:      make(chan Message, 5),
+		peers:      make(map[string]bool),
 	}
 }
 
@@ -33,7 +38,7 @@ func (s *Server) Run() error {
 	}
 	defer ln.Close()
 
-	log.Println("PORT", s.listenAddr)
+	slog.Info("starting server on", "PORT", s.listenAddr)
 
 	s.ln = ln
 	go s.accept()
@@ -52,7 +57,12 @@ func (s *Server) accept() {
 			continue
 		}
 
-		log.Println("accepted connection:", conn.RemoteAddr().String())
+		slog.Info("accepted connection from", "addr", conn.RemoteAddr().String())
+
+		s.mu.Lock()
+		s.peers[conn.RemoteAddr().String()] = true
+		fmt.Printf("accepted connections %v\n", s.peers)
+		s.mu.Unlock()
 
 		go s.read(conn)
 	}
@@ -64,7 +74,7 @@ func (s *Server) read(conn net.Conn) {
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
-			slog.Info("reading error:", "err", err.Error())
+			slog.Error("reading error:", "err", err.Error())
 			continue
 		}
 
